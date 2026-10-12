@@ -9,9 +9,10 @@ The tracker starts from a decision and asks who saw it coming. The catalog start
 **What it shows (as of 12 October 2026)**
 
 - Of 112 claims whose deadline has passed, 32 were exactly right, 27 were one move off, 53 were wrong.
-- Claims made up to two months before their deadline were right 20 of 27 times. Beyond two months, 12 of 85.
+- Claims made up to two months before their deadline were right 20 of 27 times. Beyond two months, 12 of 85. That is expected (near calls are easy, since markets have priced the move by then), so being right early is what sets a house apart.
 - Every turn was missed: none of the claims for 2019 came true, and all twelve 2022 year totals fell short by 250 bp or more.
 - **League table (ranking of houses).** Houses with 5+ checked forecasts are ranked by "beat the pack": for each forecast, the house's result (correct 1, partly 0.5, wrong 0) minus the average of every other house answering the same question in the same report. This controls for easy versus hard questions. Goldman Sachs ranks #1 (+0.14), Deutsche Bank last (−0.19). On raw score BofA and UBS Wealth lead, but mostly on questions everyone got right. The table also shows raw score, average miss in bp, and each house's best call and biggest miss, and can be re-sorted by any of the three.
+- **Tolerance slider and lead-time credit (added after the 12 Oct review with the client-facing team).** Desks judge forecasts against a tolerance, not exact hits, so the league table now has a slider: count a call as right within ±0/25/50/75/100 bp (one move beyond the tolerance still earns half). A second switch, "early calls count more", weights a call made over a year ahead 4×, 6–12 months 3×, 2–6 months 2×, the last two months 1×, because near calls are easy and early calls are where skill shows. The table re-ranks live. What it shows: **Deutsche Bank is last under every setting**; Goldman Sachs leads under standard rules; with early calls weighted, Citigroup edges ahead (+0.16 vs Goldman's +0.15); at ±25 bp with early weighting, UBS Global Wealth Management leads. Standard settings reproduce `verify.py` exactly.
 - 13 published 2026 calls (January's year-end cut forecasts and the Fed's December 2025 dots) need revision after September's hike; 15 can still come true.
 
 **How it works**

@@ -124,8 +124,9 @@ qs = {}
 for r in rows:
     if r["verdict"] in PTS:
         qs.setdefault((r["src"], r["kind"], r["deadline"], r.get("year"), r.get("meeting")), []).append(r)
-for q in qs.values():
+for key, q in qs.items():
     for r in q:
+        r["q"] = "|".join(str(x) for x in key)  # question key, so the page can redo head-to-head at other tolerances
         others = [PTS[o["verdict"]] for o in q if o is not r]
         r["peers"] = len(others)
         r["edge"] = round(PTS[r["verdict"]] - sum(others) / len(others), 3) if others else None

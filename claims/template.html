@@ -93,6 +93,12 @@ details.more>div{display:flex;flex-direction:column;gap:14px}
 .sortby{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
 .sortby button{font:500 13px var(--body);color:var(--ink);background:var(--surface);border:1px solid var(--line);border-radius:999px;padding:5px 12px;cursor:pointer}
 .sortby button[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:var(--on-fill)}
+.tune{border:1px solid var(--line);border-radius:12px;padding:14px 16px;margin:14px 0;background:var(--surface)}
+.tune-row{display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+.tune input[type=range]{flex:1;min-width:160px;max-width:320px;accent-color:var(--accent)}
+.tune output{font-weight:600;min-width:120px}
+.tune .small{font-size:12.5px;margin:6px 0 12px}
+.tune .callout{margin:4px 0 0}
 #league{min-width:0}
 #league td{vertical-align:middle}
 #league .rk{font:600 20px var(--display);color:var(--accent);width:44px;text-align:center}
@@ -159,13 +165,27 @@ details.more>div{display:flex;flex-direction:column;gap:14px}
       <button data-s="score" aria-pressed="false">Raw score</button>
       <button data-s="miss" aria-pressed="false">Smallest average miss</button>
     </div>
+    <div class="tune">
+      <div class="tune-row">
+        <label for="tol"><b>Count a call as right if it lands within</b></label>
+        <input type="range" id="tol" min="0" max="100" step="25" value="0" aria-describedby="tolout">
+        <output id="tolout" class="num"></output>
+      </div>
+      <p class="muted small">Desks judge forecasts against a tolerance, not exact hits (roughly ±2% in mature markets, ±5% in emerging ones). For a policy rate the natural unit is basis points: ±25 bp forgives one move. One move beyond your tolerance still earns half credit.</p>
+      <div class="tune-row sortby" id="early"><span class="count">Credit for lead time:</span>
+        <button data-e="0" aria-pressed="true">Every call equal</button>
+        <button data-e="1" aria-pressed="false">Early calls count more</button>
+      </div>
+      <p class="muted small">Calling the Fed a week out is easy; calling it a year out is skill. With "early calls count more", a call made over a year ahead weighs 4×, 6–12 months 3×, 2–6 months 2×, the last two months 1×.</p>
+      <div class="callout" id="tunenote"></div>
+    </div>
     <div class="scroll"><table id="league"></table></div>
     <div><h3 style="margin-bottom:8px">Not enough forecasts to rank yet (fewer than <span id="minrank"></span> checked)</h3><div class="unranked" id="unranked"></div></div>
   </section>
 
   <section>
-    <h2>The further ahead, the worse the call</h2>
-    <p class="muted">Checked forecasts, by how long before the deadline they were made.</p>
+    <h2>Near calls are easy; early calls are where skill shows</h2>
+    <p class="muted">Checked forecasts, by how long before the deadline they were made. A high hit rate in the last two months is expected: by then markets have priced the move and the Fed has signalled it. The rare house that is right a year out is the one worth paying for, which is why the league table can weight early calls more.</p>
     <div class="rows" id="byhorizon"></div>
   </section>
 
@@ -256,8 +276,8 @@ const fomc = V.houses.find(h => h.house.startsWith("FOMC"));
 const ranked = V.houses.filter(h => h.ranked), leader = ranked[0];
 const byScore = [...ranked].sort((a, b) => b.score - a.score || b.edge - a.edge)[0];
 $("cards").innerHTML = [
-  ["correct", `${pct(short.correct, short.n)} <small>vs ${pct(longer.correct, longer.n)}</small>`, "Short calls work, long calls don't",
-   `Forecasts made up to 2 months ahead were right ${short.correct} of ${short.n} times. Further out: ${longer.correct} of ${longer.n}.`],
+  ["correct", `${pct(short.correct, short.n)} <small>vs ${pct(longer.correct, longer.n)}</small>`, "Near calls are easy, early ones are rare",
+   `Forecasts made up to 2 months ahead were right ${short.correct} of ${short.n} times. Further out: ${longer.correct} of ${longer.n}. Being right early is what sets a house apart.`],
   ["wrong", `0 <small>of ${y19.correct + y19.partly + y19.wrong}</small>`, "Nobody saw 2019 coming",
    "Everyone expected hikes in 2019; the Fed cut three times. In 2022 every bank under-called the hikes by 250 bp or more."],
   ["partly", `#1 <small>${esc(leader.house)}</small>`, "Best record head-to-head",
@@ -293,14 +313,45 @@ $("alive").innerHTML = groups("untested", "Still possible");
 
 const byId = Object.fromEntries(V.claims.map(c => [c.id, c]));
 const sgn = x => (x > 0 ? "+" : x < 0 ? "−" : "") + Math.abs(x).toFixed(2);
-const maxEdge = Math.max(...ranked.map(h => Math.abs(h.edge)));
+// Re-score under a tolerance (bp) and lead-time weighting. tol 0 + equal weights reproduces verify.py exactly.
+const PTS = {correct: 1, partly: 0.5, wrong: 0};
+const BPKINDS = new Set(["level", "year_total", "move", "dots"]);
+const leadW = d => d <= 60 ? 1 : d <= 182 ? 2 : d <= 366 ? 3 : 4;
+function verdictAt(c, tol) {
+  if (!tol || !BPKINDS.has(c.kind) || c.err == null) return c.verdict;
+  const e = Math.abs(c.err);
+  return e <= tol + 12.5 ? "correct" : e <= tol + 37.5 ? "partly" : "wrong";
+}
+function rescore(tol, early) {
+  const done = V.claims.filter(c => c.verdict in PTS);
+  const v = new Map(done.map(c => [c.id, verdictAt(c, tol)]));
+  const w = c => early ? leadW(c.horizon_days) : 1;
+  const qs = {};
+  done.forEach(c => c.q && (qs[c.q] = qs[c.q] || []).push(c));
+  const edge = new Map();
+  Object.values(qs).forEach(q => q.forEach(c => {
+    const o = q.filter(x => x !== c);
+    if (o.length) edge.set(c.id, PTS[v.get(c.id)] - o.reduce((s, x) => s + PTS[v.get(x.id)], 0) / o.length);
+  }));
+  return ranked.map(h0 => {
+    const mine = done.filter(c => c.house === h0.house);
+    const h = {...h0, correct: 0, partly: 0, wrong: 0};
+    let sw = 0, sp = 0, ew = 0, es = 0, en = 0;
+    mine.forEach(c => { const k = v.get(c.id); h[k]++; sw += w(c); sp += w(c) * PTS[k];
+      if (edge.has(c.id)) { ew += w(c); es += w(c) * edge.get(c.id); en++; } });
+    h.score = sw ? sp / sw : 0; h.edge = ew ? es / ew : 0; h.edge_n = en;
+    return h;
+  });
+}
+let tol = 0, early = false, cur = ranked;
+let maxEdge = Math.max(...ranked.map(h => Math.abs(h.edge)));
 const callTxt = (id, kind) => { const c = byId[id]; if (!c) return "";
   return kind === "best"
     ? `<span><b style="color:var(--c-correct)">✓ Best call:</b> ${esc(c.stated.replace(" (midpoint)", ""))}, made ${fmt(c.made_on)}</span>`
     : `<span><b style="color:var(--c-wrong)">✗ Biggest miss:</b> ${esc(c.stated.replace(" (midpoint)", ""))}, off by ${Math.abs(c.err)} ${c.kind === "first_move" ? "days" : "bp"}</span>`; };
 let sortKey = "edge";
 function league() {
-  const list = [...ranked].sort((a, b) => sortKey === "edge" ? b.edge - a.edge || b.score - a.score
+  const list = [...cur].sort((a, b) => sortKey === "edge" ? b.edge - a.edge || b.score - a.score
     : sortKey === "score" ? b.score - a.score || b.edge - a.edge : a.miss_bp - b.miss_bp || b.edge - a.edge);
   $("league").innerHTML = `<thead><tr><th class="c">Rank</th><th>House</th><th>Its checked forecasts</th><th>Beat the pack</th><th class="c">Score</th><th class="c">Avg miss</th></tr></thead><tbody>` +
     list.map((h, i) => {
@@ -312,13 +363,31 @@ function league() {
         <td class="c num sc">${Math.round(h.score * 100)}%</td><td class="c num ms">${h.miss_bp} bp</td></tr>
         <tr class="sub ${cls}"><td colspan="5" class="calls"><div class="cl">${callTxt(h.best, "best")}${callTxt(h.worst, "worst")}</div></td></tr>`;
     }).join("") + `</tbody>`;
-  $("league").querySelectorAll("[data-h]").forEach(b => bar(b, V.houses.find(h => h.house === b.dataset.h), ["correct", "partly", "wrong"]));
+  $("league").querySelectorAll("[data-h]").forEach(b => bar(b, cur.find(h => h.house === b.dataset.h), ["correct", "partly", "wrong"]));
 }
 $("sortby").addEventListener("click", e => { const b = e.target.closest("button"); if (!b) return;
   sortKey = b.dataset.s; $("sortby").querySelectorAll("button").forEach(x => x.setAttribute("aria-pressed", x === b)); league(); });
-league();
+const base = [...ranked].sort((a, b) => b.edge - a.edge || b.score - a.score).map(h => h.house);
+function retune() {
+  cur = rescore(tol, early);
+  maxEdge = Math.max(0.01, ...cur.map(h => Math.abs(h.edge)));
+  $("tolout").textContent = tol ? `±${tol} bp` : "Same range (exact)";
+  const now = [...cur].sort((a, b) => b.edge - a.edge || b.score - a.score).map(h => h.house);
+  const moved = now.map((h, i) => [h, base.indexOf(h) - i]).filter(([, d]) => Math.abs(d) >= 2)
+    .sort((a, b) => Math.abs(b[1]) - Math.abs(a[1])).slice(0, 3);
+  const std = !tol && !early;
+  $("tunenote").innerHTML = std
+    ? `<b>Standard rules.</b> Move the slider or switch on lead-time credit; the table re-ranks instantly.`
+    : `<b>At ${tol ? `±${tol} bp` : "exact range"}${early ? ", early calls weighted" : ""}:</b> #1 is ${esc(now[0])}${now[0] !== base[0] ? ` (was ${esc(base[0])})` : " (unchanged)"}, last is ${esc(now[now.length - 1])}.` +
+      (moved.length ? ` Biggest moves: ${moved.map(([h, d]) => `${esc(h)} <b class="${d > 0 ? "up" : "down"}">${d > 0 ? "▲" : "▼"}${Math.abs(d)}</b>`).join(", ")}.` : " No house moves more than one place.");
+  league();
+}
+$("tol").addEventListener("input", e => { tol = +e.target.value; retune(); });
+$("early").addEventListener("click", e => { const b = e.target.closest("button"); if (!b) return;
+  early = b.dataset.e === "1"; $("early").querySelectorAll("button").forEach(x => x.setAttribute("aria-pressed", x === b)); retune(); });
+retune();
 $("minrank").textContent = V.min_rank;
-$("leaguecallout").innerHTML = `<b>Why a raw score misleads:</b> ${esc(byScore.house)} has the best raw score (${Math.round(byScore.score * 100)}%: correct plus half of partly), but many of its hits were on questions every house got right, so head-to-head it ranks #${ranked.indexOf(byScore) + 1}. ${esc(leader.house)} ranks #1 because it was right more often when others were wrong. For reference, the Fed's own dot plot scored ${Math.round(fomc.score * 100)}% on the same rules.`;
+$("leaguecallout").innerHTML = `<b>Why a raw score misleads (standard rules):</b> ${esc(byScore.house)} has the best raw score (${Math.round(byScore.score * 100)}%: correct plus half of partly), but many of its hits were on questions every house got right, so head-to-head it ranks #${ranked.indexOf(byScore) + 1}. ${esc(leader.house)} ranks #1 because it was right more often when others were wrong. For reference, the Fed's own dot plot scored ${Math.round(fomc.score * 100)}% on the same rules.`;
 $("unranked").innerHTML = V.houses.filter(h => !h.ranked && h.judged > 0 && !h.house.startsWith("FOMC")).map(h =>
   `<span>${esc(h.house)} · ${h.judged} checked${h.edge != null ? ` · <b class="${h.edge >= 0 ? "up" : "down"}">${sgn(h.edge)}</b>` : ""}</span>`).join("");
 

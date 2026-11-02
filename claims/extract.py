@@ -1,4 +1,4 @@
-"""Extracts Fed rate forecasts from one article into the claims.json format, using an LLM through Straive's LLM Foundry.
+"""Extracts Fed rate forecasts from one article into the claims.json format, using an LLM through the LLM Foundry.
 
 Usage:
   export LLMFOUNDRY_TOKEN=...          # from https://llmfoundry.straive.com/code
